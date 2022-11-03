@@ -35,9 +35,11 @@ public:
 
 private:
   void initialize_params() {
+    /**
+     * 降采样方法选择和参数设置
+     */
     std::string downsample_method = private_nh.param<std::string>("downsample_method", "VOXELGRID");
     double downsample_resolution = private_nh.param<double>("downsample_resolution", 0.1);
-
     if(downsample_method == "VOXELGRID") {
       std::cout << "downsample: VOXELGRID " << downsample_resolution << std::endl;
       boost::shared_ptr<pcl::VoxelGrid<PointT>> voxelgrid(new pcl::VoxelGrid<PointT>());
@@ -57,7 +59,7 @@ private:
     }
 
     /**
-     * 点云离群点滤除去，这里考虑查询点邻近点数以及判定是否为离群点的阈值
+     * 点云离群点滤除，这里考虑查询点邻近点数以及判定是否为离群点的阈值
      */
     std::string outlier_removal_method = private_nh.param<std::string>("outlier_removal_method", "STATISTICAL");
     if(outlier_removal_method == "STATISTICAL") {
@@ -98,7 +100,7 @@ private:
       return;
     }
 
-    //根据距离进行滤波，只要制定距离范围内的点云
+    //根据距离进行滤波，只要指定距离范围内的点云
     pcl::PointCloud<PointT>::ConstPtr filtered = distance_filter(src_cloud);
     filtered = downsample(filtered);
     filtered = outlier_removal(filtered);

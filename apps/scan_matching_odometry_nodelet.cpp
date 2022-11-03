@@ -52,12 +52,14 @@ private:
     auto& pnh = private_nh;
     odom_frame_id = pnh.param<std::string>("odom_frame_id", "odom");
 
+    //设置关键帧选择
     // The minimum tranlational distance and rotation angle between keyframes.
     // If this value is zero, frames are always compared with the previous frame
     keyframe_delta_trans = pnh.param<double>("keyframe_delta_trans", 0.25);
     keyframe_delta_angle = pnh.param<double>("keyframe_delta_angle", 0.15);
     keyframe_delta_time = pnh.param<double>("keyframe_delta_time", 1.0);
 
+    //点云匹配位姿检验
     // Registration validation by thresholding
     transform_thresholding = pnh.param<bool>("transform_thresholding", false);
     max_acceptable_trans = pnh.param<double>("max_acceptable_trans", 1.0);
@@ -85,7 +87,7 @@ private:
       boost::shared_ptr<pcl::PassThrough<PointT>> passthrough(new pcl::PassThrough<PointT>());
       downsample_filter = passthrough;
     }
-
+    //选择匹配方法，pcl的一个点云配准库
     registration = select_registration_method(pnh);
   }
 
@@ -100,8 +102,9 @@ private:
 
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     pcl::fromROSMsg(*cloud_msg, *cloud);
-
+    //点云匹配函数
     Eigen::Matrix4f pose = matching(cloud_msg->header.stamp, cloud);
+    //发布位姿
     publish_odometry(cloud_msg->header.stamp, cloud_msg->header.frame_id, pose);
 
     // In offline estimation, point clouds until the published time will be supplied
@@ -140,7 +143,7 @@ private:
    */
   Eigen::Matrix4f matching(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
 
-    //首先判断是否是关键帧
+    //还没有关键帧，说明它是第一帧，则直接把它设置成关键帧，并初始化位姿为单位阵，直接返回
     if(!keyframe) {
       prev_trans.setIdentity();
       keyframe_pose.setIdentity();
@@ -156,11 +159,11 @@ private:
     //设置待匹配的点云
     registration->setInputSource(filtered);
 
-    //根据上一帧求得的变换矩阵两帧点云进行匹配
+    //执行匹配
     pcl::PointCloud<PointT>::Ptr aligned(new pcl::PointCloud<PointT>());
     registration->align(*aligned, prev_trans);
 
-    //判断是否匹配成功
+    //如果没有匹配成功返回上一次
     if(!registration->hasConverged()) {
       NODELET_INFO_STREAM("scan matching has not converged!!");
       NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
@@ -171,7 +174,8 @@ private:
     Eigen::Matrix4f trans = registration->getFinalTransformation();
     Eigen::Matrix4f odom = keyframe_pose * trans;
 
-    //这里根据位移和角度阈值来判断是否接受当前估计的位姿变换，如果角度和位移太大，我们就拒绝估计的位姿而选择上一帧估计值
+    //这段代码的主要功能是判断当前匹配的相对位姿是否过大，载体不可能短时间内有这么大的运动
+    //所以如果出现了，就说明这一帧匹配可能不正常,则直接舍弃
     if(transform_thresholding) {
       Eigen::Matrix4f delta = prev_trans.inverse() * trans;
       double dx = delta.block<3, 1>(0, 3).norm();
@@ -190,10 +194,12 @@ private:
     auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
     keyframe_broadcaster.sendTransform(keyframe_trans);
 
+    //判断这一帧相对于关键帧的位置或角度是否比较大了
+    //如果比较大，则需要更新关键帧，并把新的关键帧的点云设置成Target
     double delta_trans = trans.block<3, 1>(0, 3).norm();
     double delta_angle = std::acos(Eigen::Quaternionf(trans.block<3, 3>(0, 0)).w());
     double delta_time = (stamp - keyframe_stamp).toSec();
-    //?????????????????一直跟前一帧进行比较
+  
     if(delta_trans > keyframe_delta_trans || delta_angle > keyframe_delta_angle || delta_time > keyframe_delta_time) {
 
       keyframe = filtered;
@@ -216,7 +222,7 @@ private:
     // broadcast the transform over tf
     geometry_msgs::TransformStamped odom_trans = matrix2transform(stamp, pose, odom_frame_id, base_frame_id);
     odom_broadcaster.sendTransform(odom_trans);
-
+  
     // publish the transform
     nav_msgs::Odometry odom;
     odom.header.stamp = stamp;
