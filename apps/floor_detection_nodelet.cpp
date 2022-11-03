@@ -134,7 +134,7 @@ private:
     }
 
     // RANSAC
-    //通过然ransac 提取平面
+    //通过ransac 提取平面
     pcl::SampleConsensusModelPlane<PointT>::Ptr model_p(new pcl::SampleConsensusModelPlane<PointT>(filtered));
     pcl::RandomSampleConsensus<PointT> ransac(model_p);
     ransac.setDistanceThreshold(0.1);
